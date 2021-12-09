@@ -8,20 +8,21 @@
 #include <sys/mman.h>
 #include <unistd.h>
 #include "ukazi.c"
+#define ull unsigned long long
 
 
-extern void (*ukazi_functions[0xfc])(void * mem,int *r1,int*r2);
+extern void (*ukazi_functions[0xfc])(ull* mem,int *r1,int*r2);
 //registers
 int A,B,T,S,X,L,F;
 // instructions type 1 opcodes
-char ukaz_tipa_1[6] = {0xc4,0xc0,0xf4,0xc8,0xf0,0xf8}
+char ukaz_tipa_1[6] = {0xc4,0xc0,0xf4,0xc8,0xf0,0xf8};
 // instructions type 2 opcodes
-char ukaz_tipa_2[10] = {0x90, 0xb4,0xa0,0x9c,0x98,0xac,0xa4,0xa8,0x94,0xb0}
+char ukaz_tipa_2[10] = {0x90, 0xb4,0xa0,0x9c,0x98,0xac,0xa4,0xa8,0x94,0xb0};
 // array of register pointers for easier decoding of instructions
 int * registers[7] = {&A,&X,&L,&B,&S,&T,&F};
 
-void * IP;
-void * HIP;
+ull IP;
+ull HIP;
 int a = 0;
 
 struct Header{
@@ -41,7 +42,7 @@ struct T{
 
 int one_byte(char oc){
 	for (int i = 0; i < 6; ++i){
-		if oc == ukaz_tipa_1[i]
+		if (oc == ukaz_tipa_1[i])
 			return 1;
 	
 	}
@@ -51,7 +52,7 @@ int one_byte(char oc){
 
 int two_byte(char oc){
 	for( int i = 0; i< 10; ++i){
-		if oc == ukaz_tipa_2[i]
+		if (oc == ukaz_tipa_2[i])
 			return 1;
 	
 	
@@ -132,10 +133,10 @@ int main(int argc, char ** argv){
 	// START EXECUTING
 	
 	// instruction pointer damo na zacetek memorija
-	IP = emulated_memory;
+	IP = (ull)emulated_memory;
 	// helper instruction pointer damo tudi na zacetek memorija in tuki bo tud
 	// ostal
-	HIP = emulated_memory;
+	HIP = (ull)emulated_memory;
 	// registre postavimo na 0
 	A =0;
 	B =0;
@@ -146,35 +147,39 @@ int main(int argc, char ** argv){
 	F =0;
 	// deklariramo spremenljivke ki jih bomo rabli u loopu da se ne
 	// deklarirajo ob vsaki iteraciji
-	
-	int * r1,r2;
-	void * m;
+	char b1,b2,b3,b4;
+	int * r1;
+	int * r2;
+	ull m = (ull)emulated_memory;
 	char register_data, r1_oc,r2_oc;
-	int increment_ip = 0;
 	// runnamom loop dokler nam mati da kruha in mleka xD
 	
-	while (0){
+	while (1){
+		printf("REGISTRI: A->0x%x, B->0x%x, S->0x%x, X->0x%x, T->0x%x, L->0x%x\n",A,B,S,X,T,L);
 		//preberemo 1 byte iz IPja
-		char data  = (*(int*)IP);
-	
+		char b1  = (*(char*)IP);
+		IP++;
+		if (b1 == 0)
+			break;
+		printf("IP-> %x\n",b1);	
 		// izluscimo dejanksi opcode
-		char actual_oc =  data & 0xfc;	
-	
+		char actual_oc =  b1 & 0xfc;	
+		printf("actual_od -> %x\n",actual_oc);
 		// ce je tipa ena recemo da nardi kar mora -> povecamo IP za 1
 	
 		if (one_byte(actual_oc) ==1){
-			ukazi_functions[actual_oc](m,r1,r2);
-			increment_ip =1;
+			puts("ukaz tipa 1");
+			ukazi_functions[actual_oc]((ull*)m,r1,r2);
 
 		}else if( two_byte(actual_oc) == 1){
-			m = NULL;
-			IP++1;
+			puts("ukaz tipa 2");
+			m = 0;
 			register_data = (*(char*)IP);
+			IP++;
 			r1_oc = register_data >> 0x8;
 			r2_oc = register_data & 0xff;
 			r1 = registers[r1_oc];
 			r2 = registers[r2_oc];
-			increment_ip = 2;
 		}else{
 			// ce smo prsli do tle potem mamo instruction tipa 3/4
 			// let the fun begin!!
@@ -184,54 +189,63 @@ int main(int argc, char ** argv){
 			r2 = 0;
 
 			// dobimo vn n in i
-			char n = opcode & 0x2;
-			char i = opcode & 0x1;
+			char n = (b1 & 0x2) ? 1 : 0;
+			char i = (b1 & 0x1) ? 1 : 0;
 
 			// potegnemo vn se 2 byta ker itak bo vsaj 3 byte dolg
 			// instruction
 			//
-			data  = data >> 0x8;
-			char b2 = data & 0xff;
-			char x = b2 & 0x80;
-			char b = b2 & 0x40;
-			char p = b2 & 0x20;
-			char e = b2 & 0x10;
-
 			
-			data = data >> 0x8;
+			b2 = (*(char*)IP);
+			IP++;
+			char x = (b2 & 0x80) ? 1 : 0;
+			char b = (b2 & 0x40) ? 1 : 0;
+			char p = (b2 & 0x20) ? 1 : 0;
+			char e = (b2 & 0x10) ? 1 : 0;
 
-			char b3 = data & 0xff;
+			b3 = (*(char*)IP);
+			IP++;
 			// displacement loh zracunamo ze zdej ker ga rabimo v obeh
 			// primerih
 
-			int displacemant = (b3&0x0f) << 8;
-			displacemant = displacemant | (b3 & 0xff);
-			
+			printf("b3 = %x\n", b3);
+			int displacement = (b2&0x0f) << 8;
+			displacement = displacement | (b3 & 0xff);
+			printf("displacement: %d\n",displacement);
 			//pogruntamo a mamo 3 al 4
 		
 			if (e == 1){
 				// imamo instruction tipa 4 addr je absoluten 
-				data = data >> 0x8;
-				char b4 = data & 0xff;
-				displacemant <<= 0x8;
-				displacemant |= (b4&0xff);	
-				m = displacement;
-				increment_ip =4;
+				puts("ukaz tipa 4");
+				b4 = (*(char*)IP);
+				IP++;
+				displacement <<= 0x8;
+				displacement |= (b4&0xff);	
+				m = displacement + HIP;
 			}else{
 				// imamo instruction tipa 3
-				if p == 1
-					m = IP + displacemant;
-				if b == 1
-					m = B + displacement;
-				if x == 1
+				puts("ukaz tipa 3");
+				printf("biti: p->%d, b->%d, x->%d, n->%d,i->%d\n",p,b,x,n,i);
+				if (p == 1)
+					m = IP + displacement;
+				if (b == 1)
+					m = B + displacement + HIP;
+				if (x == 1)
 					m += X;
-				if n == 1
-					m = *(HIP + mem); // dereference mem;
-
-				increment ip = 3;
+				
+				if (n == 1 && i == 0)
+					m = (*(ull*)m); // dereference mem;
+				
+				if (i ==1 && n==0){
+					m = 0;	
+					m = (ull)m | (ull)displacement;
+				}
+				printf("mem: %p -> %p\n",(void*)m,(void*)m);
 			}
 		}
-		ukazi_functions[actual_oc](m,r1,r2);
+		printf("mem 0: %p\n",(void*)HIP);
+		ukazi_functions[actual_oc]((ull*)m,r1,r2);
+		puts("======================================");
 		//TODO: zdj k smo poflexali s kodo jo je treba pa se stestira.
 		//to pa kot dobri programerji, pustimo za ju3 :)
 	}
