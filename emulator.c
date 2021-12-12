@@ -12,6 +12,10 @@
 
 
 extern void (*ukazi_functions[0xfc])(ull* mem,int *r1,int*r2);
+extern int read_fds[100];
+extern int read_fds_cnt;
+extern int write_fds[100];
+extern int write_fds_cnt;
 //registers
 int A,B,T,S,X,L,F;
 // instructions type 1 opcodes
@@ -20,9 +24,10 @@ char ukaz_tipa_1[6] = {0xc4,0xc0,0xf4,0xc8,0xf0,0xf8};
 char ukaz_tipa_2[10] = {0x90, 0xb4,0xa0,0x9c,0x98,0xac,0xa4,0xa8,0x94,0xb0};
 // array of register pointers for easier decoding of instructions
 int * registers[7] = {&A,&X,&L,&B,&S,&T,&F};
-
+unsigned char rabijo_pointer[13] = {0x78,0x14,0x7c,0xe8,0x84,0x10,0x30,0x34,0x38,0x3c,0x48,0x54,0x0c};
 ull IP;
 ull HIP;
+ull SW;
 int a = 0;
 
 struct Header{
@@ -39,6 +44,24 @@ struct T{
 	char length_of_code[2];
 	char code[60]; // hacky way to get the code
 };
+ull obrni_indijanca_main(ull i){
+	ull b0, b1 ,b2; 
+	b0 = (i & 0x000000ff) << 16;
+	b1 = (i & 0x0000ff00);
+	b2 = (i & 0x00ff0000) >> 16;
+	ull res = 0x00 | b0 | b1 | b2;
+	return res;
+}
+
+int rabi_pointer(unsigned char actual_oc){
+	for (int i = 0; i< sizeof(rabijo_pointer)/sizeof(unsigned char); ++i){
+		if (rabijo_pointer[i] == actual_oc)
+			return 1;
+	
+	}
+	return 0;
+
+}
 
 int one_byte(char oc){
 	for (int i = 0; i < 6; ++i){
@@ -49,17 +72,26 @@ int one_byte(char oc){
 	return 0;
 
 }
+//return 2s complement of <n> based on bitcount
+int twos_complement(int n, int bitcount){
+	printf("dobil sm %d",n);	
+	if (( n & (1 << (bitcount -1))) > 0){
+		puts("negativno je");
+		printf("negativno je, returnam %d\n",((1 <<bitcount) -n ) *-1);
+		return ((1 << bitcount) - n) * -1;
+	
+	}else{
+		return n;
+	}
+}
+
 
 int two_byte(char oc){
 	for( int i = 0; i< 10; ++i){
 		if (oc == ukaz_tipa_2[i])
 			return 1;
-	
-	
 	}
-
 	return 0;
-
 }
 
 
@@ -82,6 +114,8 @@ int main(int argc, char ** argv){
 		perror("usage: ./emulator <prog.obj>");
 		exit(-1);
 	}
+	int offset,size;
+	scanf("%d %d",&offset,&size);
 	// inicializiraj funkcije za oppcode v ukazi.c
 	init_ukazi();
 
@@ -147,23 +181,24 @@ int main(int argc, char ** argv){
 	F =0;
 	// deklariramo spremenljivke ki jih bomo rabli u loopu da se ne
 	// deklarirajo ob vsaki iteraciji
-	char b1,b2,b3,b4;
+	unsigned char b1,b2,b3,b4;
 	int * r1;
 	int * r2;
 	ull m = (ull)emulated_memory;
-	char register_data, r1_oc,r2_oc;
+	unsigned char register_data, r1_oc,r2_oc;
 	// runnamom loop dokler nam mati da kruha in mleka xD
 	
 	while (1){
-		printf("REGISTRI: A->0x%x, B->0x%x, S->0x%x, X->0x%x, T->0x%x, L->0x%x\n",A,B,S,X,T,L);
 		//preberemo 1 byte iz IPja
-		char b1  = (*(char*)IP);
+		ull* ptr_za_picke2=0;
+		ull* ptr_za_picke1=0;
+		unsigned char b1  = (*(char*)IP);
 		IP++;
 		if (b1 == 0)
 			break;
 		printf("IP-> %x\n",b1);	
 		// izluscimo dejanksi opcode
-		char actual_oc =  b1 & 0xfc;	
+		unsigned char actual_oc =  b1 & 0xfc;	
 		printf("actual_od -> %x\n",actual_oc);
 		// ce je tipa ena recemo da nardi kar mora -> povecamo IP za 1
 	
@@ -176,8 +211,10 @@ int main(int argc, char ** argv){
 			m = 0;
 			register_data = (*(char*)IP);
 			IP++;
-			r1_oc = register_data >> 0x8;
-			r2_oc = register_data & 0xff;
+			printf("register_data: %x",register_data);
+			r1_oc = (register_data & 0xf0) >> 4;
+			r2_oc = register_data & 0x0f;
+			printf("r1_oc: %d, r2_oc: %d",r1_oc,r2_oc);
 			r1 = registers[r1_oc];
 			r2 = registers[r2_oc];
 		}else{
@@ -221,36 +258,67 @@ int main(int argc, char ** argv){
 				IP++;
 				displacement <<= 0x8;
 				displacement |= (b4&0xff);	
+				displacement = twos_complement(displacement,20);
 				m = displacement + HIP;
 			}else{
 				// imamo instruction tipa 3
+				displacement = twos_complement(displacement,12);
 				puts("ukaz tipa 3");
 				printf("biti: p->%d, b->%d, x->%d, n->%d,i->%d\n",p,b,x,n,i);
+				int tmpIP = IP -HIP;
+				m = displacement;
+				printf(" disp: %x, tmpIP: %x\n",displacement,tmpIP);
 				if (p == 1)
-					m = IP + displacement;
+					m += tmpIP;
 				if (b == 1)
-					m = B + displacement + HIP;
+					m += B;
 				if (x == 1)
 					m += X;
-				
-				if (n == 1 && i == 0)
-					m = (*(ull*)m); // dereference mem;
-				
-				if (i ==1 && n==0){
-					m = 0;	
-					m = (ull)m | (ull)displacement;
+				if ( !(i== 1 && n == 0)){
+					m += HIP;
+					ptr_za_picke1 = (ull*)m;
+					m = *ptr_za_picke1 & 0xffffff;
+					m = obrni_indijanca_main(m);
 				}
-				printf("mem: %p -> %p\n",(void*)m,(void*)m);
+				printf("mem1: %llx\n",m);
+				if (n == 1 && i == 0){
+					if ( !((m > 0xffffff) && ((ll)m > 0)))
+						m += HIP;
+					ptr_za_picke2 = (ull*) m;
+					m = *ptr_za_picke2 & 0xffffff; // dereference mem;
+					m = obrni_indijanca_main(m);
+					
+				}
+				printf("mem: %llx\n",m);
 			}
 		}
 		printf("mem 0: %p\n",(void*)HIP);
-		ukazi_functions[actual_oc]((ull*)m,r1,r2);
+		printf("mem za picke: %p\n",&m);
+		if ( rabi_pointer(actual_oc)){
+			ull * final;
+			if ( ptr_za_picke2 != 0){
+				final = ptr_za_picke2;
+			}else if (ptr_za_picke1 != 0){
+				final = ptr_za_picke1;
+			}else{
+				final = (ull*) (HIP+m);
+			}
+			printf("final: %p",final);
+			ukazi_functions[actual_oc](final,r1,r2);
+		}else{
+			ukazi_functions[actual_oc]((ull*)m,r1,r2);
+		}
+		memory_view(offset,size);
+		printf("REGISTRI: A->0x%x, B->0x%x, S->0x%x, X->0x%x, T->0x%x, L->0x%x\n",A,B,S,X,T,L);
 		puts("======================================");
 		//TODO: zdj k smo poflexali s kodo jo je treba pa se stestira.
 		//to pa kot dobri programerji, pustimo za ju3 :)
 	}
-
-
+	// cleanup
+	for (int i = 0; i < read_fds_cnt; ++i)
+		close(read_fds[i]);
+	for (int i = 0; i< write_fds_cnt; ++i)
+		close(read_fds[i]);
 	for (int i = 0 ;i < cnt; ++i){
 		free(t_segments[i]);
 	}
